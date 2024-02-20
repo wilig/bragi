@@ -8,7 +8,6 @@ import "core:testing"
 BufferType :: enum {
 	Immutable,
 	Mutable,
-	Appendable,
 }
 
 Piece :: struct {
@@ -18,11 +17,9 @@ Piece :: struct {
 }
 
 PieceTable :: struct {
-	pieces:              [dynamic]Piece,
-	static_buffer:       string,
-	appendable_position: int,
-	buffer:              [dynamic]u8,
-	appendable:          [dynamic]u8,
+	pieces:        [dynamic]Piece,
+	static_buffer: string,
+	buffer:        [dynamic]u8,
 }
 
 
@@ -118,8 +115,6 @@ get_span :: proc(table: ^PieceTable, start: int, length: int) -> (text: string, 
 			strings.write_string(&sb, table.static_buffer[start:end])
 		case .Mutable:
 			strings.write_bytes(&sb, table.buffer[start:end])
-		case .Appendable:
-			strings.write_bytes(&sb, table.appendable[start:end])
 		}
 		remaining_length = remaining_length - (end - start)
 		if remaining_length <= 0 {
@@ -131,8 +126,14 @@ get_span :: proc(table: ^PieceTable, start: int, length: int) -> (text: string, 
 	return
 }
 
+can_append_in_place :: proc(table: ^PieceTable, piece: ^Piece) -> bool {
+	return len(table.buffer) == piece.start + piece.length
+}
+
 /*
-Inserts a string into the piece table as a new piece.
+Inserts a string into the piece table.
+
+String may be inserted as a new piece or appended to the buffer if the position is at the end of the buffer.
 
 Input:
  * A pointer to a piece table
@@ -143,26 +144,32 @@ Returns:
  * A boolean indicating success
 
 */
-// TODO: Handle appendable buffer
 insert :: proc(table: ^PieceTable, chunk: string, position: int) -> bool {
-	new_piece := Piece {
-		start  = len(table.buffer),
-		length = len(chunk),
-		type   = .Mutable,
-	}
-	append(&table.buffer, chunk)
 	piece_idx, offset, ok := find_piece(table.pieces[:], position)
-	if !ok {
-		// It's after the last piece, so append it
-		append(&table.pieces, new_piece)
-	} else if offset == 0 {
-		// Insert it before the current piece
-		inject_at(&table.pieces, piece_idx, new_piece)
+	piece := &table.pieces[piece_idx] if ok else &table.pieces[len(table.pieces) - 1]
+	if !ok && can_append_in_place(table, piece) {
+		// It's at the end of the buffer, so just update the pieces length
+		append(&table.buffer, chunk)
+		piece.length += len(chunk)
 	} else {
-		// Split the piece and insert the new piece in the middle.
-		piece_part_two := split_piece(&table.pieces[piece_idx], offset)
-		inject_at(&table.pieces, piece_idx + 1, new_piece)
-		inject_at(&table.pieces, piece_idx + 2, piece_part_two)
+		// Create a new piece and insert it into the piece table
+		new_piece := Piece {
+			start  = len(table.buffer),
+			length = len(chunk),
+			type   = .Mutable,
+		}
+		append(&table.buffer, chunk)
+		if !ok {
+			append(&table.pieces, new_piece)
+		} else if offset == 0 {
+			inject_at(&table.pieces, piece_idx, new_piece)
+			append(&table.buffer, chunk)
+		} else {
+			// Split the piece and insert the new piece in the middle.
+			piece_part_two := split_piece(&table.pieces[piece_idx], offset)
+			inject_at(&table.pieces, piece_idx + 1, new_piece)
+			inject_at(&table.pieces, piece_idx + 2, piece_part_two)
+		}
 	}
 	return true
 }
@@ -198,7 +205,6 @@ maybe_merge_pieces :: proc(table: ^PieceTable, idx: int) {
  * A boolean indicating success
 
 */
-// TODO: Handle appendable buffer
 remove :: proc(table: ^PieceTable, start, length: int) -> bool {
 	length := length
 	idx, offset := find_piece(table.pieces[:], start) or_return
@@ -236,42 +242,3 @@ remove :: proc(table: ^PieceTable, start, length: int) -> bool {
 	}
 	return true
 }
-
-/*
-set_appendable_position :: proc(table: ^PieceTable, position: int) {
-	idx, offset := find_piece(table.pieces[:], position) or_return
-	piece := &table.pieces[idx]
-	if piece.type == .Appendable {
-		return
-	} else {
-		current_appendable_piece := find_appendable_piece(table.pieces[:])
-		if piece.length > 0 {
-			// Convert the current appendable buffer to a mutable piece
-			start_position := len(table.buffer)
-			length := len(table.appendable)
-			append(&table.buffer, table.appendable[:])
-			current_appendable_piece.start = start_position
-			current_appendable_piece.length = length
-			current_appendable_piece.type = .Mutable
-		}
-		new_appendable_piece := Piece {
-			start  = position,
-			length = 0,
-			type   = .Appendable,
-		}
-		if offset == 0 {
-			inject_at(&table.pieces, idx, new_appendable_piece)
-		} else if offset == piece.length {
-			inject_at(&table.pieces, idx + 1, new_appendable_piece)
-		} else {
-			// Split the piece and insert the appendable piece in the middle.
-			piece_part_two = split_piece(&table.pieces[idx], offset)
-			inject_at(&table.pieces, idx + 1, new_appendable_piece)
-			inject_at(&table.pieces, idx + 2, piece_part_two)
-		}
-	}
-}
-*/
-
-// TODO: Append buffer
-// TODO: Rune to byte conversion on append buffer

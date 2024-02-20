@@ -59,6 +59,28 @@ test_inserting_a_piece_at_the_end_of_an_existing_piece :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_inserting_to_the_end_of_mutable_piece_at_the_end_of_the_buffer_does_not_create_a_new_piece :: proc(
+	t: ^testing.T,
+) {
+	test_str := "Start, "
+	pt, err := init(test_str)
+	testing.expect(t, err == nil)
+	testing.expect(t, insert(pt, "one, ", len(test_str)))
+	testing.expect(t, insert(pt, "two, ", len(test_str) + 5))
+	testing.expect(t, insert(pt, "three.", len(test_str) + 10))
+	testing.expect(
+		t,
+		len(pt.pieces) == 2,
+		fmt.tprintf("Expected 2 pieces, got %d\n", len(pt.pieces)),
+	)
+	text, ok := get_span(pt, 0, 23)
+	testing.expect(t, ok)
+	fmt.println(text)
+	testing.expect(t, text == "Start, one, two, three.")
+}
+
+
+@(test)
 test_deleting_a_span_in_the_middle_of_an_existing_piece :: proc(t: ^testing.T) {
 	pt, err := init("A this part will be deleted nice string")
 	testing.expect(t, err == nil)
@@ -110,14 +132,16 @@ test_deleting_a_span_at_the_end_of_an_existing_piece :: proc(t: ^testing.T) {
 @(test)
 test_deleting_a_span_at_that_spans_multiple_pieces :: proc(t: ^testing.T) {
 	base :: "All your base are belong to us."
-	insertable :: " DELETE ME "
+	insert_one :: " DELETE 1 "
+	insert_two :: " DELETE 2 "
+	insert_three :: " DELETE 3 "
 	pt, err := init(base)
 	testing.expect(t, err == nil)
-	testing.expect(t, insert(pt, insertable, 7))
-	testing.expect(t, insert(pt, insertable, 7))
-	testing.expect(t, insert(pt, insertable, 7))
-	testing.expect(t, remove(pt, 7, len(insertable) * 3))
-	fmt.println(pt.pieces)
+	testing.expect(t, insert(pt, insert_three, 8))
+	testing.expect(t, insert(pt, insert_two, 8))
+	testing.expect(t, insert(pt, insert_one, 8))
+	testing.expect(t, 5 == len(pt.pieces))
+	testing.expect(t, remove(pt, 8, len(insert_one) * 3))
 	testing.expect(
 		t,
 		len(pt.pieces) == 1,
