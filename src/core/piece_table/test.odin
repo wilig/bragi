@@ -274,3 +274,184 @@ test_retrieving_lines_across_pieces :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect(t, text == "Line one\nLine one and a half\nLine two\nLine three.")
 }
+
+@(test)
+test_event_generation :: proc(t: ^testing.T) {
+	my_change_set := make([dynamic]Change)
+	logging_listener := Listener{
+		change_set=&my_change_set,
+		emit=proc(change_set: ^[dynamic]Change, event: PieceEvent, piece: Piece, position: int) {
+			fmt.printf("Event: %v, Piece: %v, Position: %d\n", event, piece, position)
+		},
+	}
+	base :: "All your base are belong to us."
+	insert_one :: " DELETE 1 "
+	insert_two :: " DELETE 2 "
+	insert_three :: " DELETE 3 "
+	pt, err := init(base, &logging_listener)
+	testing.expect(t, err == nil)
+	fmt.println("--")
+	testing.expect(t, insert(pt, insert_three, 8))
+	fmt.println("--")
+	testing.expect(t, insert(pt, insert_two, 8))
+	fmt.println("--")
+	testing.expect(t, insert(pt, insert_one, 8))
+	fmt.println("--")
+	testing.expect(
+		t,
+		5 == len(pt.pieces),
+		fmt.tprintf("Expected 5 pieces, got %d\n", len(pt.pieces)),
+	)
+	testing.expect(t, remove(pt, 8, len(insert_one) * 2 + len(insert_three) / 2))
+	// Removing the span should have merged the pieces back into one.
+	testing.expect(
+		t,
+		len(pt.pieces) == 3,
+		fmt.tprintf("Expected 1 pieces, got %d\n", len(pt.pieces)),
+	)
+	text, ok := get_span(pt, 0, len(base) + len(insert_three) / 2)
+	testing.expect(t, ok)
+	fmt.println(text)
+	testing.expect(t, text == "All yourTE 3  base are belong to us.")
+}
+
+Change :: struct {
+		event: PieceEvent,
+		piece: Piece,
+		position: int,
+}
+
+@(test)
+test_simple_undo :: proc(t: ^testing.T) {
+	base := "This a test string for initing the piece table."
+	my_change_set := make([dynamic]Change)
+	undo_listener := Listener{
+		change_set=&my_change_set,
+		emit=proc(change_set: ^[dynamic]Change, event: PieceEvent, piece: Piece, position: int) {
+			if event == .Update {
+				piece_copy := Piece{piece.start, piece.length, piece.line_count, piece.line_offsets, piece.type}
+				append(change_set, Change{event, piece_copy, position})
+			} else {
+				append(change_set, Change{event, piece, position})
+			}
+		},
+	}
+	pt, err := init(base, &undo_listener)
+	testing.expect(t, err == nil)
+
+	testing.expect(t, insert(pt, " is", 5))
+	testing.expect(t, len(pt.pieces) == 3)
+
+	// Try to undo the last change.
+	#reverse for change in my_change_set {
+		switch change.event {
+		case .Insert:
+			ordered_remove(&pt.pieces, change.position)
+		case .Delete:
+			inject_at(&pt.pieces, change.position, change.piece)
+		case .Update:
+			pt.pieces[change.position] = change.piece
+		}
+	}
+	testing.expect(t, len(pt.pieces) == 1)
+	fmt.println(my_change_set)
+	clear(&my_change_set)
+
+	text, ok := get_span(pt, 0, len(base))
+	testing.expect(t, ok)
+	fmt.println(text)
+
+	remove(pt, 5, len(base) - 11)
+	testing.expect(t, len(pt.pieces) == 2)
+	text, ok = get_span(pt, 0, 11)
+	testing.expect(t, ok)
+	fmt.println(text)
+
+		// Try to undo the last change.
+	#reverse for change in my_change_set {
+		switch change.event {
+		case .Insert:
+			ordered_remove(&pt.pieces, change.position)
+		case .Delete:
+			inject_at(&pt.pieces, change.position, change.piece)
+		case .Update:
+			pt.pieces[change.position] = change.piece
+		}
+	}
+
+	testing.expect(t, len(pt.pieces) == 1)
+	fmt.println(my_change_set)
+	clear(&my_change_set)
+
+	text, ok = get_span(pt, 0, len(base))
+	testing.expect(t, ok)
+	fmt.println(text)
+}
+
+@(test)
+test_more_complex_undo :: proc(t: ^testing.T) {
+	s1 := "This "
+	s2 := "is "
+	s3 := "a "
+	s4 := "test string "
+	s5 := "for initing "
+	s6 := "the "
+	s7 := "piece table."
+	my_change_set := make([dynamic]Change)
+	undo_listener := Listener{
+		change_set=&my_change_set,
+		emit=proc(change_set: ^[dynamic]Change, event: PieceEvent, piece: Piece, position: int) {
+			if event == .Update {
+				piece_copy := Piece{piece.start, piece.length, piece.line_count, piece.line_offsets, piece.type}
+				append(change_set, Change{event, piece_copy, position})
+			} else {
+				append(change_set, Change{event, piece, position})
+			}
+		},
+	}
+	pt, err := init(s1, &undo_listener)
+	testing.expect(t, err == nil)
+
+	testing.expect(t, insert(pt, s7, len(s1)))
+	testing.expect(t, len(pt.pieces) == 2)
+
+	testing.expect(t, insert(pt, s6, len(s1)))
+	testing.expect(t, len(pt.pieces) == 3)
+
+	testing.expect(t, insert(pt, s5, len(s1)))
+	testing.expect(t, len(pt.pieces) == 4)
+
+	testing.expect(t, insert(pt, s4, len(s1)))
+	testing.expect(t, len(pt.pieces) == 5)
+
+	testing.expect(t, insert(pt, s3, len(s1)))
+	testing.expect(t, len(pt.pieces) == 6)
+
+	testing.expect(t, insert(pt, s2, len(s1)))
+	testing.expect(t, len(pt.pieces) == 7)
+
+	//clear(&my_change_set)
+
+	remove(pt, 5, 40)
+	testing.expect(t, len(pt.pieces) == 2)
+	text, ok := get_span(pt, 0, 11)
+	testing.expect(t, ok)
+
+	// Try to undo the last change.
+	#reverse for change in my_change_set {
+		switch change.event {
+		case .Insert:
+			ordered_remove(&pt.pieces, change.position)
+		case .Delete:
+			inject_at(&pt.pieces, change.position, change.piece)
+		case .Update:
+			pt.pieces[change.position] = change.piece
+		}
+	}
+	testing.expect(t, len(pt.pieces) == 1)
+
+	text, ok = get_span(pt, 0, len(s1))
+	testing.expect(t, ok)
+
+	testing.expect(t, text == s1)
+}

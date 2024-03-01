@@ -4,6 +4,10 @@
         {
             "name": "src",
             "path": "src"
+        },
+        {
+            "name": "core",
+            "path": "/home/wilig/lib/Odin/core"
         }
     ],
     "profiles": [
