@@ -1,0 +1,4 @@
+* DONE  Build piece table
+* TODO See if there's a better way then passing the changeset, it's easy to forget.  Make it mandatory?
+* TODO Wrap changeset into an undo/redo.
+* TODO Build document abstraction, that can read/write files and embeds the piece table, undo/redo, etc.
