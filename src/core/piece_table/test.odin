@@ -362,40 +362,6 @@ test_retrieving_lines_across_pieces :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_event_generation :: proc(t: ^testing.T) {
-	base :: "All your base are belong to us."
-	insert_one :: " DELETE 1 "
-	insert_two :: " DELETE 2 "
-	insert_three :: " DELETE 3 "
-	pt, err := init(base)
-	testing.expect(t, err == nil)
-	testing.expect(t, insert(pt, insert_three, 8))
-	testing.expect(t, insert(pt, insert_two, 8))
-	testing.expect(t, insert(pt, insert_one, 8))
-	testing.expect(
-		t,
-		5 == len(pt.pieces),
-		fmt.tprintf("Expected 5 pieces, got %d\n", len(pt.pieces)),
-	)
-	undoable_change_sets := pt.undo_list
-	testing.expect(
-		t,
-		3 == len(undoable_change_sets),
-		fmt.tprintf("Expected 3 events, got %d\n", len(undoable_change_sets)),
-	)
-	testing.expect(t, remove(pt, 8, len(insert_one) * 2 + len(insert_three) / 2))
-	// Removing the span should have merged the pieces back into one.
-	testing.expect(
-		t,
-		len(pt.pieces) == 3,
-		fmt.tprintf("Expected 1 pieces, got %d\n", len(pt.pieces)),
-	)
-	text, ok := get_span(pt, 0, len(base) + len(insert_three) / 2)
-	testing.expect(t, ok)
-	testing.expect(t, text == "All yourTE 3  base are belong to us.")
-}
-
-@(test)
 test_simple_undo_and_redo :: proc(t: ^testing.T) {
 	base := "This a test string for initing the piece table."
 	pt, err := init(base)
@@ -520,4 +486,39 @@ test_more_complex_undo_redo :: proc(t: ^testing.T) {
 	text, ok = get_span(pt, 0, len(s1) + len(s2) + len(s3) + len(s4) + len(s5) + len(s6) + len(s7))
 	testing.expect(t, ok)
 	testing.expect(t, text == "This is a test string for initing the piece table.")
+}
+
+@(test)
+test_getting_a_span_longer_than_the_buffer :: proc(t: ^testing.T) {
+	base := "This is a test string for initing the piece table."
+	pt, err := init(base)
+	testing.expect(t, err == nil)
+
+	text, ok := get_span(pt, 0, len(base) + 1)
+	testing.expect(t, ok)
+	testing.expect(t, text == base)
+}
+
+@(test)
+test_getting_line_offsets_for_a_line_that_does_not_exist :: proc(t: ^testing.T) {
+	base := "This is a test string for initing the piece table."
+	pt, err := init(base)
+	testing.expect(t, err == nil)
+
+	start, end := get_line_offsets(pt, 100, 1)
+	testing.expect(t, start == 0, fmt.tprintf("Expected 0, got %d\n", start))
+	testing.expect(t, end == 0, fmt.tprintf("Expected 0, got %d\n", end))
+}
+
+@(test)
+test_removing_a_span_across_two_pieces_offset_from_the_start_of_the_first_piece :: proc(t: ^testing.T) {
+	base := "This is a test string"
+	pt, err := init(base)
+	testing.expect(t, err == nil)
+	testing.expect(t, insert(pt, " for initing the piece table.", len(base)))
+
+	testing.expect(t, remove(pt, 9, 28))
+	text, ok := get_span(pt, 0, 100)
+	testing.expect(t, ok)
+	testing.expect(t, text == "This is a piece table.", fmt.tprintf("Expected 'This is a piece table.', got '%s'\n", text))
 }

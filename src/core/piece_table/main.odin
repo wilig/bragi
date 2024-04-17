@@ -393,7 +393,6 @@ maybe_merge_pieces :: proc(table: ^PieceTable, idx: int) {
 		next_piece := &table.pieces[idx + 1]
 		// If the pieces are adjacent in the same buffer, merge them.
 		if piece.type == next_piece.type && piece.start + piece.length == next_piece.start {
-			// TODO: Emit change event from here.
 			piece.length += next_piece.length
 			piece.line_count += next_piece.line_count
 			append(&piece.line_offsets, ..next_piece.line_offsets[:])
@@ -415,45 +414,38 @@ maybe_merge_pieces :: proc(table: ^PieceTable, idx: int) {
 
 */
 remove :: proc(table: ^PieceTable, start, length: int) -> bool {
-    // TODO: Figure out how to merge pieces after a delete
 	if length > 0 {
 		init_change_set(table)
 		length := length
 		idx, offset := find_piece(table.pieces[:], start) or_return
 		piece := &table.pieces[idx]
-
-		// Span is contained within one piece
-		if piece.length - offset >= length {
-			if offset == 0 { 	// It's at the beginning to restart the starting index
-				update_piece(table, idx, start = length, length = piece.length - length)
-			} else if (piece.length - offset == length) { 	// It's at the end, so reset length
-				update_piece(table, idx, length = offset)
-			} else { 	// There are bits hanging on both ends, so split into two pieces
-				new_piece := split_piece(table, idx, offset + length)
-				add_piece(table, new_piece, idx + 1)
-				update_piece(table, idx, length = offset)
-			}
-		} else {
-			// Span is spread across multiple pieces
-			previous_piece_idx := idx - 1
-			for length > 0 {
-				piece_length := piece.length
-				if piece.length > length {
-					// Span ends within piece
-					update_piece(table, idx, piece.start + length, piece.length - length)
-					break
-				} else {
-					// Entire piece is within span, remove it.
-					length -= piece.length
-					delete_piece(table, idx)
-					// Get the next piece, it will be the new piece at the current index
-					if idx < len(table.pieces) {
-						piece = &table.pieces[idx]
-					}
-				}
-			}
-			maybe_merge_pieces(table, previous_piece_idx)
-		}
+        previous_piece_idx := idx - 1
+        for length > 0 {
+            if offset != 0 {
+                // If the offset is not at the beginning of the piece, split the piece
+                // and reset the length of the current piece.
+                new_piece := split_piece(table, idx, offset)
+                add_piece(table, new_piece, idx + 1)
+                update_piece(table, idx, length = offset)
+                idx += 1
+                piece = &table.pieces[idx]
+                offset = 0
+            }
+            if piece.length > length {
+                // Span ends within piece, so just update the length of the piece
+                update_piece(table, idx, piece.start + length, piece.length - length)
+                break
+            } else {
+                // Entire piece is within span, remove it.
+                length -= piece.length
+                delete_piece(table, idx)
+                // Get the next piece, it will be the new piece at the current index
+                if idx < len(table.pieces) {
+                    piece = &table.pieces[idx]
+                }
+            }
+        }
+        maybe_merge_pieces(table, previous_piece_idx)
 		record_change_set(table)
 	}
 	return true
